@@ -83,6 +83,9 @@ jobs:
           cd source
           git checkout $ref
 
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+
       - name: Build from private source
         shell: pwsh
         working-directory: source
