@@ -64,8 +64,14 @@ jobs:
           New-Item -ItemType Directory -Path "$env:USERPROFILE/.ssh" -Force | Out-Null
           $keyPath = "$env:USERPROFILE/.ssh/id_source_repo"
           Set-Content -Path $keyPath -Value $env:SOURCE_REPO_SSH_KEY -NoNewline
-          icacls $keyPath /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
-          ssh-keyscan github.com | Out-File -FilePath "$env:USERPROFILE/.ssh/known_hosts" -Encoding ascii -Append
+          @"
+          Host github.com
+            HostName github.com
+            User git
+            IdentityFile $keyPath
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          "@ | Set-Content -Path "$env:USERPROFILE/.ssh/config" -Encoding ascii
 
       - name: Clone private source repo
         shell: pwsh
