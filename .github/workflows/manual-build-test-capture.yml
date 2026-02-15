@@ -1,0 +1,123 @@
+name: Manual Build Test Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Private source repository (owner/name)
+        required: true
+        type: string
+      source_ref:
+        description: Source ref or commit SHA
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact name for package download
+        required: true
+        default: weasel-package
+        type: string
+      arch:
+        description: Build arch
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x86
+          - x64
+          - arm64
+      configuration:
+        description: Build configuration
+        required: true
+        default: release
+        type: choice
+        options:
+          - debug
+          - release
+      run_effect_tests:
+        description: Execute effect test script
+        required: true
+        default: true
+        type: boolean
+      run_visual_capture:
+        description: Execute visual capture script
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-capture:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key for private source clone
+        shell: pwsh
+        env:
+          SOURCE_REPO_SSH_KEY: ${{ secrets.SOURCE_REPO_SSH_KEY }}
+        run: |
+          if (-not $env:SOURCE_REPO_SSH_KEY) { throw 'Missing SOURCE_REPO_SSH_KEY secret.' }
+          New-Item -ItemType Directory -Path "$env:USERPROFILE/.ssh" -Force | Out-Null
+          $keyPath = "$env:USERPROFILE/.ssh/id_source_repo"
+          Set-Content -Path $keyPath -Value $env:SOURCE_REPO_SSH_KEY -NoNewline
+          icacls $keyPath /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
+          ssh-keyscan github.com | Out-File -FilePath "$env:USERPROFILE/.ssh/known_hosts" -Encoding ascii -Append
+
+      - name: Clone private source repo
+        shell: pwsh
+        run: |
+          $repo = '${{ inputs.source_repo }}'
+          $ref = '${{ inputs.source_ref }}'
+          git clone "git@github.com:$repo.git" source
+          cd source
+          git checkout $ref
+
+      - name: Build from private source
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/build.ps1 -Arch '${{ inputs.arch }}' -Configuration '${{ inputs.configuration }}' -OutputDir 'artifacts/package'
+
+      - name: Run effect tests
+        if: ${{ inputs.run_effect_tests }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/run_effect_tests.ps1 -ArtifactDir 'artifacts/package' -ReportDir 'artifacts/reports'
+
+      - name: Capture visual flow
+        if: ${{ inputs.run_visual_capture }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/capture_visual_flow.ps1 -OutputDir 'artifacts/visual'
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: source/artifacts/package
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload test report artifact
+        if: ${{ inputs.run_effect_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: effect-test-report
+          path: source/artifacts/reports
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload visual story artifact
+        if: ${{ inputs.run_visual_capture }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-story
+          path: source/artifacts/visual
+          if-no-files-found: error
+          retention-days: 1
