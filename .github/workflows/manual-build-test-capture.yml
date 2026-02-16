@@ -89,18 +89,32 @@ jobs:
         run: |
           $repo = '${{ inputs.source_repo }}'
           $ref = '${{ inputs.source_ref }}'
-          git clone "git@github.com:$repo.git" source
+          git clone --recurse-submodules "git@github.com:$repo.git" source
           cd source
           git checkout $ref
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Setup xmake
         uses: xmake-io/github-action-setup-xmake@v1
+
+      - name: Setup MSVC toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          sdk: 10.0.19041.0
 
       - name: Build from private source
         shell: pwsh
         working-directory: source
         run: |
-          ./tool/ci/build.ps1 -Arch '${{ inputs.arch }}' -Configuration '${{ inputs.configuration }}' -OutputDir 'artifacts/package'
+          ./tool/ci/build.ps1 -Arch '${{ inputs.arch }}' -Configuration '${{ inputs.configuration }}' -OutputDir 'artifacts/package' -StrictBuild
+
+      - name: Setup and start Weasel IME
+        if: ${{ inputs.run_click_tests || inputs.run_visual_capture }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/setup_weasel_ime.ps1 -ArtifactDir 'artifacts/package' -SetupOption '/s'
 
       - name: Run click flow tests
         if: ${{ inputs.run_click_tests }}
@@ -128,7 +142,7 @@ jobs:
         shell: pwsh
         working-directory: source
         run: |
-          ./tool/ci/capture_visual_flow.ps1 -OutputDir 'artifacts/visual'
+          ./tool/ci/capture_visual_flow.ps1 -OutputDir 'artifacts/visual' -StrictUi
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
