@@ -38,6 +38,16 @@ on:
         required: true
         default: true
         type: boolean
+      run_click_tests:
+        description: Execute click automation test script
+        required: true
+        default: true
+        type: boolean
+      run_feedback_governance:
+        description: Execute feedback governance pipeline
+        required: true
+        default: true
+        type: boolean
       run_visual_capture:
         description: Execute visual capture script
         required: true
@@ -92,12 +102,26 @@ jobs:
         run: |
           ./tool/ci/build.ps1 -Arch '${{ inputs.arch }}' -Configuration '${{ inputs.configuration }}' -OutputDir 'artifacts/package'
 
-      - name: Run effect tests
-        if: ${{ inputs.run_effect_tests }}
+      - name: Run click flow tests
+        if: ${{ inputs.run_click_tests }}
         shell: pwsh
         working-directory: source
         run: |
-          ./tool/ci/run_effect_tests.ps1 -ArtifactDir 'artifacts/package' -ReportDir 'artifacts/reports'
+          ./tool/ci/run_click_flow_tests.ps1 -ArtifactDir 'artifacts/package' -OutputDir 'artifacts/click'
+
+      - name: Run feedback governance pipeline
+        if: ${{ inputs.run_feedback_governance }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/run_feedback_pipeline.ps1 -EventsLog 'artifacts/click/click_events.jsonl' -OutputDir 'artifacts/governance'
+
+      - name: Run effect tests
+        if: ${{ inputs.run_effect_tests && inputs.run_click_tests && inputs.run_feedback_governance }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./tool/ci/run_effect_tests.ps1 -ArtifactDir 'artifacts/package' -ReportDir 'artifacts/reports' -EventsLog 'artifacts/click/click_events.jsonl' -ClickReport 'artifacts/click/click_flow_report.json' -GovernanceDir 'artifacts/governance'
 
       - name: Capture visual flow
         if: ${{ inputs.run_visual_capture }}
@@ -115,7 +139,7 @@ jobs:
           retention-days: 1
 
       - name: Upload test report artifact
-        if: ${{ inputs.run_effect_tests }}
+        if: ${{ inputs.run_effect_tests && inputs.run_click_tests && inputs.run_feedback_governance }}
         uses: actions/upload-artifact@v4
         with:
           name: effect-test-report
@@ -129,5 +153,23 @@ jobs:
         with:
           name: visual-story
           path: source/artifacts/visual
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload click flow artifact
+        if: ${{ inputs.run_click_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: click-flow-report
+          path: source/artifacts/click
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload governance artifact
+        if: ${{ inputs.run_feedback_governance }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: feedback-governance
+          path: source/artifacts/governance
           if-no-files-found: error
           retention-days: 1
