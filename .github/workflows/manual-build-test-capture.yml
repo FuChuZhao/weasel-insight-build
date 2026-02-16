@@ -145,6 +145,7 @@ jobs:
           ./tool/ci/capture_visual_flow.ps1 -OutputDir 'artifacts/visual' -StrictUi
 
       - name: Upload package artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}
@@ -171,7 +172,7 @@ jobs:
           retention-days: 1
 
       - name: Upload click flow artifact
-        if: ${{ inputs.run_click_tests }}
+        if: ${{ always() && inputs.run_click_tests }}
         uses: actions/upload-artifact@v4
         with:
           name: click-flow-report
