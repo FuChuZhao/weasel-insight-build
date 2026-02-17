@@ -1,0 +1,83 @@
+name: Manual Window Style Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Private source repository (owner/name)
+        required: true
+        type: string
+      source_ref:
+        description: Source ref or commit SHA
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact name for probe report
+        required: true
+        default: window-style-probe-report
+        type: string
+      strict_mode:
+        description: Fail workflow when strict probe criteria are not met
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  window-style-probe:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key for private source clone
+        shell: pwsh
+        env:
+          SOURCE_REPO_SSH_KEY: ${{ secrets.SOURCE_REPO_SSH_KEY }}
+        run: |
+          if (-not $env:SOURCE_REPO_SSH_KEY) { throw 'Missing SOURCE_REPO_SSH_KEY secret.' }
+          New-Item -ItemType Directory -Path "$env:USERPROFILE/.ssh" -Force | Out-Null
+          $keyPath = "$env:USERPROFILE/.ssh/id_source_repo"
+          $keyText = $env:SOURCE_REPO_SSH_KEY -replace "`r", ""
+          [System.IO.File]::WriteAllText($keyPath, $keyText, [System.Text.Encoding]::ASCII)
+          @"
+          Host github.com
+            HostName github.com
+            User git
+            IdentityFile $keyPath
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          "@ | Set-Content -Path "$env:USERPROFILE/.ssh/config" -Encoding ascii
+
+      - name: Clone private source repo
+        shell: pwsh
+        run: |
+          $repo = '${{ inputs.source_repo }}'
+          $ref = '${{ inputs.source_ref }}'
+          git clone --recurse-submodules "git@github.com:$repo.git" source
+          cd source
+          git checkout $ref
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Run window style probe
+        shell: pwsh
+        working-directory: source
+        run: |
+          if ('${{ inputs.strict_mode }}' -eq 'true') {
+            ./tool/ci/run_window_style_probe.ps1 -OutputDir 'artifacts/window-probe' -Strict
+          } else {
+            ./tool/ci/run_window_style_probe.ps1 -OutputDir 'artifacts/window-probe'
+          }
+
+      - name: Upload window style probe artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: source/artifacts/window-probe
+          if-no-files-found: error
+          retention-days: 1
